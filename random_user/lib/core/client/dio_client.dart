@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 
 import '../interceptor/app_interceptor.dart';
+import '../exceptions/api_exception.dart';
 
 class DioClient {
   final String baseUrl;
@@ -12,16 +13,42 @@ class DioClient {
     required this.dio,
     this.interceptors,
   }) {
-    dio
-      ..options.baseUrl = baseUrl
-      ..options.connectTimeout = const Duration(seconds: 5)
-      ..options.receiveTimeout = const Duration(seconds: 3)
-      ..httpClientAdapter
-      ..options.headers = {'Content-Type': 'application/json; charset=UTF-8'};
+    dio.options.baseUrl = baseUrl;
+    dio.options.connectTimeout = const Duration(seconds: 15);
+    dio.options.receiveTimeout = const Duration(seconds: 15);
+    dio.options.sendTimeout = const Duration(seconds: 15);
+    dio.options.validateStatus = (status) => status != null && status < 500;
+    dio.options.headers = {
+      'Content-Type': 'application/json; charset=UTF-8',
+      'Accept': 'application/json',
+    };
     if (interceptors?.isNotEmpty ?? false) {
       dio.interceptors.addAll(interceptors!);
     }
     dio.interceptors.add(AppInterceptor()); // Add AppInterceptor by default
+  }
+
+  Future<Response> _handleResponse(Response response) async {
+    if (response.statusCode! >= 200 && response.statusCode! < 300) {
+      return response;
+    } else {
+      throw ApiException.fromDioError(
+        DioException(
+          requestOptions: response.requestOptions,
+          response: response,
+        ),
+      );
+    }
+  }
+
+  Future<Response> _handleError(dynamic error) async {
+    if (error is DioException) {
+      throw ApiException.fromDioError(error);
+    }
+    throw ApiException(
+      message: error.toString(),
+      type: ApiErrorType.unknown,
+    );
   }
 
   Future<Response> get(
@@ -39,9 +66,9 @@ class DioClient {
         cancelToken: cancelToken,
         onReceiveProgress: onReceiveProgress,
       );
-      return response;
+      return await _handleResponse(response);
     } catch (e) {
-      rethrow;
+      return await _handleError(e);
     }
   }
 
@@ -64,13 +91,12 @@ class DioClient {
         onSendProgress: onSendProgress,
         onReceiveProgress: onReceiveProgress,
       );
-      return response;
+      return await _handleResponse(response);
     } catch (e) {
-      rethrow;
+      return await _handleError(e);
     }
   }
 
-  // Implement put, delete, etc. similarly
   Future<Response> put(
     String path, {
     data,
@@ -90,9 +116,9 @@ class DioClient {
         onSendProgress: onSendProgress,
         onReceiveProgress: onReceiveProgress,
       );
-      return response;
+      return await _handleResponse(response);
     } catch (e) {
-      rethrow;
+      return await _handleError(e);
     }
   }
 
@@ -111,9 +137,9 @@ class DioClient {
         options: options,
         cancelToken: cancelToken,
       );
-      return response;
+      return await _handleResponse(response);
     } catch (e) {
-      rethrow;
+      return await _handleError(e);
     }
   }
 }
